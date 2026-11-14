@@ -23,6 +23,8 @@ import echo.music.iad1tya.constants.DownloadOnWifiOnlyKey
 import echo.music.iad1tya.constants.DownloadQuality
 import echo.music.iad1tya.constants.DownloadQualityKey
 import echo.music.iad1tya.constants.DownloadWithMetadataKey
+import echo.music.iad1tya.constants.ExportDirectoryUriKey
+import echo.music.iad1tya.constants.ExportedSongIdsKey
 import echo.music.iad1tya.constants.IpVersionKey
 import echo.music.iad1tya.db.MusicDatabase
 import echo.music.iad1tya.db.entities.FormatEntity
@@ -63,12 +65,13 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import okhttp3.Dns
 import okhttp3.OkHttpClient
+import timber.log.Timber
 
 @Singleton
 class DownloadUtil
 @Inject
 constructor(
-  @ApplicationContext context: Context,
+  @ApplicationContext private val context: Context,
   val database: MusicDatabase,
   val databaseProvider: DatabaseProvider,
   @DownloadCache val downloadCache: SimpleCache,
@@ -312,6 +315,7 @@ constructor(
                         updateDownloadedInfo(download.request.id, true, downloadDate)
                       }
                     }
+                    maybeAutoExport(download.request.id, title)
                   }
                   Download.STATE_FAILED,
                   Download.STATE_REMOVING -> {
@@ -385,6 +389,36 @@ constructor(
   }
 
   fun getDownload(songId: String): Flow<Download?> = downloads.map { it[songId] }
+
+  /**
+   * When an in-app download completes, also save a playable MP3 into the user's
+   * configured export directory (Settings -> Storage -> Export directory). The
+   * song still stays available offline inside the app. No-op when no export
+   * directory is set or the song has already been exported.
+   */
+  private suspend fun maybeAutoExport(songId: String, fallbackTitle: String) {
+    try {
+      val preferences = context.dataStore.data.first()
+      val exportDirectoryUri = preferences[ExportDirectoryUriKey].orEmpty()
+      if (exportDirectoryUri.isBlank()) return
+      val alreadyExported =
+        preferences[ExportedSongIdsKey].orEmpty().split(",").any { it.trim() == songId }
+      if (alreadyExported) return
+
+      val song = database.getSongById(songId)
+      AudioExportService.start(
+        context = context,
+        songId = songId,
+        songTitle = song?.song?.title ?: fallbackTitle,
+        songArtist = song?.artists?.joinToString(", ") { it.name } ?: "",
+        songAlbum = song?.song?.albumName ?: song?.album?.title ?: "",
+        artworkUrl = song?.thumbnailUrl ?: "",
+        targetDirectoryUri = exportDirectoryUri,
+      )
+    } catch (e: Exception) {
+      Timber.e(e, "Auto-export on download failed for songId=$songId")
+    }
+  }
 
   fun release() {
     scope.cancel()
