@@ -55,7 +55,7 @@ jobs:
         STORE_PASSWORD: ${{ secrets.STORE_PASSWORD }}
       run: |
         chmod +x gradlew
-        ./gradlew assembleUniversalGmsRelease assembleArm64GmsRelease
+        ./gradlew assembleArm64GmsRelease
 
     - name: Build Debug APK (fork PR fallback without signing)
       if: ${{ env.KEYSTORE_BASE64 == '' }}
@@ -72,12 +72,12 @@ jobs:
           -keyalg RSA \
           -validity 10000
         chmod +x gradlew
-        ./gradlew assembleUniversalFossDebug assembleArm64FossDebug
+        ./gradlew assembleArm64FossDebug
 
-    - name: Upload APKs (universal + arm64)
+    - name: Upload Arm64 APK
       uses: actions/upload-artifact@v7
       with:
-        name: Echo-Music-APKs
+        name: Echo-Music-Arm64-APK
         path: app/build/outputs/apk/**/*.apk
 
     - name: Publish GitHub Release
